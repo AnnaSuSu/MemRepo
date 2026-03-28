@@ -1,0 +1,27 @@
+{
+  "name": "memrepo",
+  "version": "0.1.0",
+  "description": "Incremental codebase memory layer — MCP server + Claude Code skills for persistent repo understanding",
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "memrepo": "dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.8.1",
+    "ignore": "^7.0.4",
+    "fast-glob": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
