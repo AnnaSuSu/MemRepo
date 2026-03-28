@@ -14,6 +14,7 @@ const indexer = new Indexer(store, REPO_ROOT);
 const server = new McpServer({
   name: "memrepo",
   version: "0.3.0",
+  description: "Persistent codebase memory layer. Maintains hierarchical .md summaries in .memrepo/ that survive across sessions. START EVERY SESSION by calling get_summary(path='.', depth='project') to load project context. After editing files, call notify_edit to keep memory in sync.",
 });
 
 // ─── Tool 1: index_path ───────────────────────────────────
@@ -21,7 +22,7 @@ const server = new McpServer({
 
 server.tool(
   "index_path",
-  "Scan a file or directory — parses all source files, extracts symbols/deps, writes hierarchical .md memory docs (project → module → file). Use for initial onboarding or bulk re-scan.",
+  "Scan a file or directory — parses all source files, extracts symbols/deps, writes hierarchical .md memory docs in .memrepo/ (project → module → file). Use for initial onboarding (first time in a repo) or bulk re-scan. Only needed once per repo; after that, use notify_edit for incremental updates.",
   {
     path: z.string().describe("Relative path to index (file or directory, '.' for entire repo)"),
     force: z.boolean().optional().describe("Force full re-index ignoring cache (default: false)"),
@@ -42,7 +43,7 @@ server.tool(
 
 server.tool(
   "notify_edit",
-  "Notify that a file was edited. Re-parses the single file, updates its memory doc, and appends a timestamped timeline entry. Call this after EVERY code change.",
+  "Notify that a file was edited. Re-parses the single file, updates its .memrepo/ memory doc, and appends a timestamped timeline entry. IMPORTANT: Call this after EVERY code edit you make (create/modify/delete) to keep memory in sync.",
   {
     path: z.string().describe("Relative path of the changed file"),
     summary: z.string().describe("One-line description of what changed and why"),
@@ -85,7 +86,7 @@ server.tool(
 
 server.tool(
   "get_summary",
-  "Read the memory summary for a file, module (directory), or the entire project. Module/project summaries are automatically rebuilt if any child files were updated since last build.",
+  "Read the memory summary for a file, module, or entire project from .memrepo/. IMPORTANT: Call this with path='.' and depth='project' at the START of every session to understand the codebase. Also call before editing a file to get context (exports, deps, recent changes). Summaries auto-rebuild if child files were updated.",
   {
     path: z.string().describe("Relative path (file or directory)"),
     depth: z.enum(["file", "module", "project"]).optional().describe("Granularity level (default: auto-detect)"),
@@ -116,7 +117,7 @@ server.tool(
 
 server.tool(
   "get_timeline",
-  "Read the timestamped change timeline. Filter by file path or time range to see what changed and when.",
+  "Read the timestamped change timeline from .memrepo/. Shows who changed what and when. Use at session start to see recent activity, or before editing to understand a file's change history. Filter by path prefix or time range (e.g. '7d', '24h').",
   {
     path: z.string().optional().describe("Filter by path prefix (e.g. 'src/auth')"),
     since: z.string().optional().describe("Time filter: ISO date or relative like '7d', '24h'"),
