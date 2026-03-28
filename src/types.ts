@@ -1,38 +1,39 @@
-/** A file or directory that has been indexed */
-export interface IndexedEntry {
+// ─── Granularity Levels ───────────────────────────────────
+// project  → _project.md      (1 per repo)
+// module   → _module.md       (1 per directory)
+// file     → <name>.md        (1 per source file)
+// timeline → _timeline.md     (1 per repo, append-only)
+
+export interface Frontmatter {
+  type: "project" | "module" | "file";
   path: string;
-  type: "file" | "directory";
+  updated: string;           // ISO timestamp
+  git_hash: string | null;
+  [key: string]: unknown;    // extensible
+}
+
+export interface FileMeta extends Frontmatter {
+  type: "file";
   language: string | null;
-  summary: string;
-  symbols: string[];          // exported functions, classes, types
-  dependencies: string[];     // import paths
-  lastIndexedAt: string;      // ISO timestamp
-  gitHash: string | null;     // commit hash at time of indexing
-  size: number;               // file size in bytes
+  size: number;
+  symbols: string[];
+  dependencies: string[];
 }
 
-/** A recorded change event */
-export interface ChangeRecord {
-  id: number;
-  path: string;
-  action: "create" | "modify" | "delete" | "rename";
-  summary: string;
-  author: string | null;
-  timestamp: string;          // ISO timestamp
-  gitHash: string | null;
+export interface ModuleMeta extends Frontmatter {
+  type: "module";
+  file_count: number;
+  children: string[];        // sub-directory names
+  key_exports: string[];
 }
 
-/** Module-level aggregated summary */
-export interface ModuleSummary {
-  path: string;               // directory path
-  summary: string;
-  fileCount: number;
-  children: string[];         // sub-module paths
-  keyExports: string[];
-  lastUpdatedAt: string;
+export interface ProjectMeta extends Frontmatter {
+  type: "project";
+  languages: string[];
+  total_files: number;
+  total_modules: number;
 }
 
-/** Freshness check result */
 export interface FreshnessResult {
   path: string;
   isStale: boolean;
@@ -42,10 +43,11 @@ export interface FreshnessResult {
   changedFiles: string[];
 }
 
-/** Search result from knowledge query */
-export interface SearchResult {
+export interface TimelineEntry {
+  timestamp: string;
+  action: "create" | "modify" | "delete" | "rename" | "index";
   path: string;
-  type: "file" | "directory";
   summary: string;
-  relevance: number;          // 0-1 score
+  author: string | null;
+  git_hash: string | null;
 }

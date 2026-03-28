@@ -1,23 +1,23 @@
 {
   "$schema": "https://docs.anthropic.com/claude-code/settings.schema.json",
-  "_comment": "Example Claude Code configuration for memrepo. Copy relevant sections to your .claude/settings.json",
+  "_comment": "Copy relevant sections to your .claude/settings.json",
 
   "mcpServers": {
     "memrepo": {
-      "command": "npx",
-      "args": ["tsx", "/path/to/memrepo/src/server.ts"],
+      "command": "node",
+      "args": ["/path/to/memrepo/dist/server.js"],
       "env": {
         "MEMREPO_ROOT": "/path/to/your/project"
       }
     }
   },
 
+  "_comment2": "Optional: auto-update memory after edits",
   "hooks": {
     "postToolUse": [
       {
-        "_comment": "Auto-update index after file edits",
         "matcher": "Edit|Write",
-        "command": "echo 'memrepo: index updated triggered'"
+        "command": "echo '[memrepo] Consider running /after-edit to update memory'"
       }
     ]
   }
