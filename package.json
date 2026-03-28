@@ -1,17 +1,41 @@
 {
   "name": "memrepo",
   "version": "0.3.0",
-  "description": "Incremental codebase memory layer — MCP server + Claude Code skills. Stores understanding as hierarchical markdown docs, no vector DB needed.",
+  "description": "Incremental codebase memory for AI coding assistants. Hierarchical markdown knowledge base, no vector DB needed.",
   "type": "module",
   "main": "dist/server.js",
   "bin": {
     "memrepo": "dist/server.js"
   },
+  "files": [
+    "dist",
+    "skills",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/server.ts",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "mcp",
+    "ai",
+    "coding",
+    "memory",
+    "codebase",
+    "claude",
+    "llm",
+    "markdown",
+    "incremental"
+  ],
+  "author": "AnnaSuSu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnnaSuSu/MemRepo.git"
+  },
+  "homepage": "https://github.com/AnnaSuSu/MemRepo",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "ignore": "^7.0.4",

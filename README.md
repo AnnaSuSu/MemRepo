@@ -229,66 +229,89 @@ cp /path/to/memrepo/skills/*.md .cursor/commands/
 
 ---
 
-## Setup
+## Quick Start (Claude Code)
 
-### 1. Build MemRepo
+### Step 1: Add MCP Server
 
 ```bash
-git clone https://github.com/your-org/memrepo.git
-cd memrepo
-npm install
-npm run build
+claude mcp add memrepo -- npx memrepo
 ```
 
-### 2. Configure MCP
+That's it. No cloning, no building. `npx` downloads and runs it automatically.
 
-Add MemRepo to your AI tool's MCP configuration.
+> **Note**: By default, MemRepo uses the current working directory as the repo root. To specify a different repo, set `MEMREPO_ROOT`:
+> ```bash
+> claude mcp add memrepo -e MEMREPO_ROOT=/path/to/your/repo -- npx memrepo
+> ```
 
-**Claude Code** (`~/.claude.json` or project config):
+### Step 2: Install Skills
 
-```json
-{
-  "mcpServers": {
-    "memrepo": {
-      "command": "node",
-      "args": ["/path/to/memrepo/dist/server.js"],
-      "env": {
-        "MEMREPO_ROOT": "/path/to/your/target/repo"
-      }
-    }
-  }
-}
+```bash
+# In your target project directory:
+mkdir -p .claude/commands
+
+# Download skills from npm package:
+npx memrepo --help 2>/dev/null; \
+cp $(npm root -g 2>/dev/null || echo node_modules)/memrepo/skills/*.md .claude/commands/ 2>/dev/null || \
+  npx -y -p memrepo sh -c 'cp $(dirname $(which memrepo))/../lib/node_modules/memrepo/skills/*.md .claude/commands/' 2>/dev/null || \
+  echo "Manual download: https://github.com/AnnaSuSu/MemRepo/tree/main/skills"
 ```
 
-**OpenCode** (`opencode.json`):
+Or just manually download the 4 skill files from [GitHub](https://github.com/AnnaSuSu/MemRepo/tree/main/skills) into `.claude/commands/`.
 
-```json
+### Step 3: Use
+
+Open Claude Code in your project and run:
+
+```bash
+# First time — full scan and orientation:
+/project:onboard
+
+# Understand a module:
+/project:understand src/auth
+
+# Edit with full context + auto memory sync:
+/project:edit src/auth/login.ts fix the token validation bug
+
+# See what changed recently:
+/project:what-changed 7d
+```
+
+### Other Tools
+
+**OpenCode:**
+```bash
+# Add MCP server in opencode.json:
 {
   "mcp": {
     "memrepo": {
-      "command": "node",
-      "args": ["/path/to/memrepo/dist/server.js"],
-      "env": {
-        "MEMREPO_ROOT": "/path/to/your/target/repo"
-      }
+      "command": "npx",
+      "args": ["memrepo"]
     }
   }
 }
+
+# Install skills:
+mkdir -p .opencode/commands
+# Copy skills/*.md files to .opencode/commands/
 ```
 
-### 3. Install Skills
-
-Copy skills to your target repo's command directory (see [Installing Skills](#installing-skills) above).
-
-### 4. First Run
-
-Use the onboard skill to do the initial scan:
-
-```
-/project:onboard
+**Cursor:**
+```bash
+mkdir -p .cursor/commands
+# Copy skills/*.md files to .cursor/commands/
 ```
 
-This generates the full `.memrepo/` hierarchy. After this, use `/project:edit` for editing with auto-sync, and `/project:understand` for quick orientation.
+### From Source (Alternative)
+
+```bash
+git clone https://github.com/AnnaSuSu/MemRepo.git
+cd MemRepo
+npm install && npm run build
+
+# Then add to Claude Code:
+claude mcp add memrepo -- node /path/to/MemRepo/dist/server.js
+```
 
 ---
 
