@@ -9,8 +9,8 @@ import fg from "fast-glob";
 import ignore from "ignore";
 import { MemoryStore } from "../storage/memoryStore.js";
 import { parseFile } from "./parser.js";
-import { getHeadHash, getStaleFiles, getGitAuthor } from "./diffTracker.js";
-import type { ModuleMeta, ProjectMeta, FreshnessResult } from "../types.js";
+import { isGitRepo, getHeadHash, getStaleFiles, getStaleFilesByMtime, getGitAuthor } from "./diffTracker.js";
+import type { ModuleMeta, ProjectMeta } from "../types.js";
 
 const DEFAULT_IGNORE = [
   "node_modules", ".git", ".memrepo", "dist", "build",
@@ -21,6 +21,7 @@ const DEFAULT_IGNORE = [
 
 export class Indexer {
   private ig: ReturnType<typeof ignore>;
+  private hasGit: boolean;
 
   constructor(
     private store: MemoryStore,
@@ -28,6 +29,7 @@ export class Indexer {
   ) {
     this.ig = ignore();
     this.ig.add(DEFAULT_IGNORE);
+    this.hasGit = isGitRepo(repoRoot);
 
     const gitignorePath = path.join(repoRoot, ".gitignore");
     if (fs.existsSync(gitignorePath)) {
@@ -59,17 +61,27 @@ export class Indexer {
       dot: false,
     });
 
-    const headHash = getHeadHash(this.repoRoot);
     let staleSet: Set<string> | null = null;
 
     if (!opts.force) {
-      const existing = this.store.readModule(targetPath);
-      const sinceHash = (existing?.meta.git_hash as string) ?? null;
-      if (sinceHash && sinceHash === headHash) {
-        return { indexed: 0, skipped: files.length };
+      if (this.hasGit) {
+        // Git-based incremental indexing
+        const headHash = getHeadHash(this.repoRoot);
+        const existing = this.store.readModule(targetPath);
+        const sinceHash = (existing?.meta.git_hash as string) ?? null;
+        // Only skip if both hashes are non-null and equal
+        if (sinceHash && headHash && sinceHash === headHash) {
+          return { indexed: 0, skipped: files.length };
+        }
+        const staleFiles = getStaleFiles(this.repoRoot, targetPath, sinceHash);
+        staleSet = new Set(staleFiles.map((f) => path.resolve(this.repoRoot, f)));
+      } else {
+        // Mtime-based incremental indexing (no git)
+        const existing = this.store.readModule(targetPath);
+        const indexedAt = (existing?.meta.updated as string) ?? null;
+        const staleFiles = getStaleFilesByMtime(this.repoRoot, targetPath, indexedAt, files);
+        staleSet = new Set(staleFiles.map((f) => path.resolve(this.repoRoot, f)));
       }
-      const staleFiles = getStaleFiles(this.repoRoot, targetPath, sinceHash);
-      staleSet = new Set(staleFiles.map((f) => path.resolve(this.repoRoot, f)));
     }
 
     let indexed = 0;
@@ -99,9 +111,104 @@ export class Indexer {
     return { indexed, skipped };
   }
 
+  // ─── notify_edit: lightweight single-file incremental update ──
+
+  /**
+   * Notify that a file was edited. Re-parses the file, updates its
+   * memory doc, and appends a timeline entry. Does NOT rebuild
+   * module/project summaries (those are rebuilt lazily on read).
+   */
+  notifyEdit(
+    filePath: string,
+    summary: string,
+    action: "create" | "modify" | "delete" | "rename" = "modify"
+  ): { symbols: number; dependencies: number } {
+    const absPath = path.resolve(this.repoRoot, filePath);
+
+    let symbols = 0;
+    let dependencies = 0;
+
+    if (action === "delete") {
+      // Remove memory doc for deleted file
+      this.store.deleteFile(filePath);
+    } else {
+      // (Re-)parse and write memory doc
+      if (!fs.existsSync(absPath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      const result = parseFile(absPath, this.repoRoot);
+      result.meta.git_hash = this.hasGit ? getHeadHash(this.repoRoot) : null;
+      this.store.writeFile(result.meta, result.body);
+      symbols = result.meta.symbols.length;
+      dependencies = result.meta.dependencies.length;
+    }
+
+    // Append timeline entry
+    this.store.recordChange({
+      timestamp: new Date().toISOString(),
+      action,
+      path: filePath,
+      summary,
+      author: this.hasGit ? getGitAuthor(this.repoRoot) : null,
+      git_hash: this.hasGit ? getHeadHash(this.repoRoot) : null,
+    });
+
+    return { symbols, dependencies };
+  }
+
+  // ─── Lazy module/project rebuild ─────────────────────────────
+
+  /**
+   * Ensure a module summary is fresh. If any child file doc has a
+   * newer `updated` timestamp than the module doc, rebuild it.
+   * Returns the (possibly rebuilt) module summary.
+   */
+  ensureModuleFresh(dirPath: string): { meta: ModuleMeta; body: string } | null {
+    const existing = this.store.readModule(dirPath);
+    const files = this.store.getFilesUnder(dirPath);
+    if (files.length === 0) return existing;
+
+    // Check if any child is newer than the module doc
+    if (existing) {
+      const moduleUpdated = new Date(existing.meta.updated).getTime();
+      const anyNewer = files.some((f) => {
+        const fileUpdated = new Date(f.meta.updated).getTime();
+        return fileUpdated > moduleUpdated;
+      });
+      if (!anyNewer) return existing; // still fresh
+    }
+
+    // Rebuild
+    this.buildModuleSummary(dirPath);
+    return this.store.readModule(dirPath);
+  }
+
+  /**
+   * Ensure project summary is fresh. Same lazy logic.
+   */
+  ensureProjectFresh(): { meta: ProjectMeta; body: string } | null {
+    const existing = this.store.readProject();
+    const files = this.store.getFilesUnder(".");
+    if (files.length === 0) return existing;
+
+    if (existing) {
+      const projUpdated = new Date(existing.meta.updated).getTime();
+      const anyNewer = files.some((f) => {
+        const fileUpdated = new Date(f.meta.updated).getTime();
+        return fileUpdated > projUpdated;
+      });
+      if (!anyNewer) return existing;
+    }
+
+    this.buildProjectSummary();
+    return this.store.readProject();
+  }
+
+  // ─── Internal helpers ────────────────────────────────────────
+
   private indexSingleFile(absPath: string): void {
     const result = parseFile(absPath, this.repoRoot);
-    result.meta.git_hash = getHeadHash(this.repoRoot);
+    result.meta.git_hash = this.hasGit ? getHeadHash(this.repoRoot) : null;
     this.store.writeFile(result.meta, result.body);
   }
 
@@ -128,7 +235,7 @@ export class Indexer {
       type: "module",
       path: dirPath || ".",
       updated: new Date().toISOString(),
-      git_hash: getHeadHash(this.repoRoot),
+      git_hash: this.hasGit ? getHeadHash(this.repoRoot) : null,
       file_count: files.length,
       children: subDirs,
       key_exports: allExports.slice(0, 20),
@@ -187,7 +294,7 @@ export class Indexer {
       type: "project",
       path: ".",
       updated: new Date().toISOString(),
-      git_hash: getHeadHash(this.repoRoot),
+      git_hash: this.hasGit ? getHeadHash(this.repoRoot) : null,
       languages,
       total_files: stats.totalFiles,
       total_modules: stats.totalModules,
@@ -217,42 +324,5 @@ export class Indexer {
     bodyLines.push("");
 
     this.store.writeProject(meta, bodyLines.join("\n"));
-  }
-
-  /** Check freshness of a path */
-  checkFreshness(targetPath: string): FreshnessResult {
-    const existing = this.store.readFile(targetPath) ?? this.store.readModule(targetPath);
-    const currentHash = getHeadHash(this.repoRoot);
-    const indexedHash = (existing?.meta.git_hash as string) ?? null;
-    const isStale = !indexedHash || indexedHash !== currentHash;
-
-    const changedFiles = isStale
-      ? getStaleFiles(this.repoRoot, targetPath, indexedHash)
-      : [];
-
-    return {
-      path: targetPath,
-      isStale,
-      indexedAt: existing?.meta.updated ?? null,
-      currentHash,
-      indexedHash,
-      changedFiles,
-    };
-  }
-
-  /** Record a change to timeline */
-  recordChange(
-    filePath: string,
-    summary: string,
-    action: "create" | "modify" | "delete" | "rename" = "modify"
-  ): void {
-    this.store.recordChange({
-      timestamp: new Date().toISOString(),
-      action,
-      path: filePath,
-      summary,
-      author: getGitAuthor(this.repoRoot),
-      git_hash: getHeadHash(this.repoRoot),
-    });
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "memrepo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Incremental codebase memory layer — MCP server + Claude Code skills. Stores understanding as hierarchical markdown docs, no vector DB needed.",
   "type": "module",
   "main": "dist/server.js",

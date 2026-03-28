@@ -1,10 +1,25 @@
 import { execSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 
 export interface GitFileChange {
   status: "A" | "M" | "D" | "R";
   path: string;
   oldPath?: string; // for renames
+}
+
+/** Check if the repo root is inside a git repository */
+export function isGitRepo(repoRoot: string): boolean {
+  try {
+    execSync("git rev-parse --is-inside-work-tree", {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Get the current HEAD commit hash, or null if no commits */
@@ -73,6 +88,7 @@ export function getChangedFiles(
 
 /**
  * Check which files under a path have changed since a given commit hash.
+ * Falls back to returning all files if git is unavailable.
  */
 export function getStaleFiles(
   repoRoot: string,
@@ -80,7 +96,10 @@ export function getStaleFiles(
   sinceHash: string | null
 ): string[] {
   const headHash = getHeadHash(repoRoot);
-  if (!headHash) return [];
+
+  // No git available — cannot determine staleness, treat all as stale
+  if (!headHash) return ["*"];
+
   if (!sinceHash) {
     // No prior index — everything is stale
     try {
@@ -99,4 +118,35 @@ export function getStaleFiles(
   return changes
     .filter((c) => c.path.startsWith(rel) || rel === ".")
     .map((c) => c.path);
+}
+
+/**
+ * Mtime-based staleness check for non-git repos.
+ * Compares each file's mtime against the stored indexedAt timestamp.
+ */
+export function getStaleFilesByMtime(
+  repoRoot: string,
+  dirPath: string,
+  indexedAt: string | null,
+  filePaths: string[]
+): string[] {
+  // No prior index — everything is stale
+  if (!indexedAt) return filePaths;
+
+  const indexedTime = new Date(indexedAt).getTime();
+  if (isNaN(indexedTime)) return filePaths;
+
+  const stale: string[] = [];
+  for (const absPath of filePaths) {
+    try {
+      const stat = fs.statSync(absPath);
+      if (stat.mtimeMs > indexedTime) {
+        stale.push(path.relative(repoRoot, absPath));
+      }
+    } catch {
+      // File unreadable — treat as stale
+      stale.push(path.relative(repoRoot, absPath));
+    }
+  }
+  return stale;
 }
